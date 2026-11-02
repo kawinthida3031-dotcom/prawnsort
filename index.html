@@ -50,17 +50,17 @@
             justify-content: center;
             align-items: center;
         }
-        .preview-img {
+        /* วิดีโอสตรีมกล้องสด และภาพถ่ายตัวอย่าง */
+        video, .preview-img {
             width: 100%;
             height: 100%;
             object-fit: cover;
-            display: none;
         }
-        .placeholder-text {
-            text-align: center;
-            color: #64748B;
-            font-size: 0.95rem;
-            padding: 20px;
+        .preview-img {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
         }
         .status-badge {
             position: absolute;
@@ -83,7 +83,7 @@
             width: 8px;
             height: 8px;
             border-radius: 50%;
-            background-color: #64748B;
+            background-color: var(--accent-green);
         }
         .right-panel {
             display: flex;
@@ -185,27 +185,25 @@
         .btn-capture:hover {
             opacity: 0.9;
         }
-        input[type="file"] {
-            display: none;
-        }
     </style>
 </head>
 <body>
 
     <div class="app-layout">
+        <!-- ฝั่งซ้าย: แสดงกล้องสดและภาพที่จับได้ -->
         <div class="left-panel">
             <div id="statusBadge" class="status-badge">
                 <div id="statusDot" class="status-dot"></div>
-                <span id="statusText">พร้อมถ่ายภาพ</span>
+                <span id="statusText">กล้องพร้อมใช้งาน</span>
             </div>
 
-            <div id="placeholder" class="placeholder-text">
-                📸 กล้องพร้อมใช้งาน<br>กดปุ่ม "ส่องกุ้งตัวถัดไป" ด้านขวาเพื่อถ่ายภาพ
-            </div>
-            
-            <img id="preview" class="preview-img" alt="Egg Preview">
+            <!-- วิดีโอสตรีมกล้องสดในหน้าเว็บ -->
+            <video id="videoFeed" autoplay playsinline muted></video>
+            <!-- ภาพนิ่งหลังกดถ่าย -->
+            <img id="preview" class="preview-img" alt="Captured Egg">
         </div>
 
+        <!-- ฝั่งขวา: แผงควบคุมและผลการวิเคราะห์ -->
         <div class="right-panel">
             <div class="right-top">
                 <div class="header-row">
@@ -231,23 +229,28 @@
                 </div>
             </div>
 
-            <button class="btn-capture" onclick="triggerCamera()">
+            <!-- ปุ่มกดถ่ายภาพและส่องตัวถัดไป -->
+            <button id="actionBtn" class="btn-capture" onclick="handleAction()">
                 📷 🔄 ส่องกุ้งตัวถัดไป
             </button>
         </div>
     </div>
 
-    <input type="file" id="cameraInput" accept="image/*" capture="environment">
+    <!-- Canvas สำหรับแปลงภาพวิดีโอเป็นไฟล์ส่ง AI -->
+    <canvas id="canvas" style="display: none;"></canvas>
 
     <script>
-        const cameraInput = document.getElementById('cameraInput');
+        const video = document.getElementById('videoFeed');
         const preview = document.getElementById('preview');
-        const placeholder = document.getElementById('placeholder');
+        const canvas = document.getElementById('canvas');
         const stageOutput = document.getElementById('stageOutput');
         const daysOutput = document.getElementById('daysOutput');
-        const statusBadge = document.getElementById('statusBadge');
         const statusDot = document.getElementById('statusDot');
         const statusText = document.getElementById('statusText');
+        const actionBtn = document.getElementById('actionBtn');
+
+        let streamActive = true;
+        let mediaStream = null;
 
         // ตารางเงื่อนไขวันฟัก 7 ระยะที่คุณกำหนดไว้เป๊ะๆ
         const hatchingRules = {
@@ -260,62 +263,102 @@
             "stage_7": { name: "ระยะที่ 7", days: "อีก 2 วัน" }
         };
 
-        function triggerCamera() {
-            cameraInput.click();
+        // เริ่มเปิดกล้องสตรีมเข้าหน้าเว็บทันทีเมื่อโหลดหน้าเว็บ
+        async function startCamera() {
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment' },
+                    audio: false
+                });
+                video.srcObject = mediaStream;
+            } catch (err) {
+                statusDot.style.backgroundColor = "#EF4444";
+                statusText.innerText = "ไม่สามารถเปิดกล้องได้";
+                alert("กรุณาอนุญาตการเข้าถึงกล้องในเบราว์เซอร์");
+            }
         }
 
-        cameraInput.addEventListener('change', async function(event) {
-            const file = event.target.files[0];
-            if (!file) return;
+        // ฟังก์ชันควบคุมปุ่ม (สลับระหว่าง "ถ่ายภาพวิเคราะห์" และ "ส่องกุ้งตัวถัดไป")
+        async function handleAction() {
+            if (streamActive) {
+                // ขั้นตอนที่ 1: ถ่ายภาพจากวิดีโอสด
+                const context = canvas.getContext('2d');
+                canvas.width = video.videoWidth || 640;
+                canvas.height = video.videoHeight || 480;
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-            preview.src = URL.createObjectURL(file);
-            preview.style.display = 'block';
-            placeholder.style.display = 'none';
+                // แสดงภาพนิ่งที่ถ่ายไว้ค้างไว้บนหน้าจอ
+                canvas.toBlob(async (blob) => {
+                    preview.src = URL.createObjectURL(blob);
+                    preview.style.display = 'block';
+                    video.style.display = 'none';
 
-            statusDot.style.backgroundColor = "var(--accent-amber)";
-            statusText.innerText = "กำลังวิเคราะห์ AI...";
-            stageOutput.innerText = "กำลังประมวลผล...";
-            daysOutput.innerText = "...";
+                    // หยุดสตรีมชั่วคราวเพื่อให้ภาพนิ่งค้างให้ผู้ใช้เห็น
+                    streamActive = false;
+                    actionBtn.innerText = "🔄 ส่องกุ้งตัวถัดไป";
 
-            const formData = new FormData();
-            formData.append("file", file);
+                    // อัปเดตสถานะกำลังวิเคราะห์
+                    statusDot.style.backgroundColor = "var(--accent-amber)";
+                    statusText.innerText = "กำลังวิเคราะห์ AI...";
+                    stageOutput.innerText = "กำลังประมวลผล...";
+                    daysOutput.innerText = "...";
 
-            try {
-                // ใช้ URL แบบสัมพัทธ์ (/predict) เพื่อให้ทำงานได้ทั้งบนโลคัลและบน Render โดยไม่ต้องแก้โค้ด
-                const response = await fetch('/predict', {
-                    method: 'POST',
-                    body: formData
-                });
-                const data = await response.json();
+                    // ส่งภาพไปประมวลผลที่ Backend
+                    const formData = new FormData();
+                    formData.append("file", blob, "capture.jpg");
 
-                statusDot.style.backgroundColor = "var(--accent-green)";
-                statusText.innerText = "วิเคราะห์เสร็จสิ้น";
+                    try {
+                        const response = await fetch('/predict', {
+                            method: 'POST',
+                            body: formData
+                        });
+                        const data = await response.json();
 
-                let detectedClass = "stage_1"; 
-                try {
-                    const predictions = data.prediction_results.outputs[0].predictions;
-                    if (predictions && predictions.length > 0) {
-                        detectedClass = predictions[0].class;
+                        statusDot.style.backgroundColor = "var(--accent-green)";
+                        statusText.innerText = "วิเคราะห์เสร็จสิ้น";
+
+                        let detectedClass = "stage_1";
+                        try {
+                            const predictions = data.prediction_results.outputs[0].predictions;
+                            if (predictions && predictions.length > 0) {
+                                detectedClass = predictions[0].class;
+                            }
+                        } catch (e) {
+                            console.log("ใช้ค่าเริ่มต้น");
+                        }
+
+                        if (hatchingRules[detectedClass]) {
+                            stageOutput.innerText = hatchingRules[detectedClass].name;
+                            daysOutput.innerText = hatchingRules[detectedClass].days;
+                        } else {
+                            stageOutput.innerText = detectedClass;
+                            daysOutput.innerText = "ไม่พบข้อมูล";
+                        }
+
+                    } catch (error) {
+                        statusDot.style.backgroundColor = "#EF4444";
+                        statusText.innerText = "เกิดข้อผิดพลาด";
+                        stageOutput.innerText = "Error";
+                        daysOutput.innerText = "เชื่อมต่อไม่ได้";
                     }
-                } catch (err) {
-                    console.log("ใช้ค่าเริ่มต้น");
-                }
+                }, 'image/jpeg');
 
-                if (hatchingRules[detectedClass]) {
-                    stageOutput.innerText = hatchingRules[detectedClass].name;
-                    daysOutput.innerText = hatchingRules[detectedClass].days;
-                } else {
-                    stageOutput.innerText = detectedClass;
-                    daysOutput.innerText = "ไม่พบข้อมูล";
-                }
-
-            } catch (error) {
-                statusDot.style.backgroundColor = "#EF4444";
-                statusText.innerText = "เกิดข้อผิดพลาด";
-                stageOutput.innerText = "Error";
-                daysOutput.innerText = "เชื่อมต่อไม่ได้";
+            } else {
+                // ขั้นตอนที่ 2: รีเซ็ตเพื่อส่องกุ้งตัวถัดไป (เปิดกล้องสดกลับมาเหมือนเดิม)
+                preview.style.display = 'none';
+                video.style.display = 'block';
+                streamActive = true;
+                actionBtn.innerText = "📷 ถ่ายภาพและวิเคราะห์";
+                
+                stageOutput.innerText = "-";
+                daysOutput.innerText = "-";
+                statusDot.style.backgroundColor = "var(--accent-green)";
+                statusText.innerText = "กล้องพร้อมใช้งาน";
             }
-        });
+        }
+
+        // เรียกใช้งานฟังก์ชันเปิดกล้องทันทีที่โหลดหน้าเว็บ
+        startCamera();
     </script>
 </body>
 </html>
