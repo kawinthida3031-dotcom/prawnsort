@@ -22,7 +22,7 @@ app.add_middleware(
 # ดึงค่า API Key จาก Environment Variable ของเซิร์ฟเวอร์ (ปลอดภัยเมื่อขึ้น GitHub/Render)
 # หรือใส่รหัสของคุณไว้ในเครื่องหมายคำพูดด้านหลังเผื่อรันเทสบนเครื่อง
 WORKSPACE_NAME = "kawinthida-uttiya-s-workspace"
-WORKFLOW_ID = "prawnsort-1-rfdetr-small-t1"
+WORKFLOW_ID = "prawnsort-1-yolov8s-t2"
 API_KEY = os.getenv("ROBOFLOW_API_KEY", "ใส่_API_Key_ของคุณตรงนี้")
 
 @app.get("/", response_class=HTMLResponse)
